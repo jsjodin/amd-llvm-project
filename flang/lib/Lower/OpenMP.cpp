@@ -2788,7 +2788,7 @@ genTargetOp(Fortran::lower::AbstractConverter &converter,
                  Fortran::parser::OmpClause::Firstprivate,
                  Fortran::parser::OmpClause::IsDevicePtr,
                  Fortran::parser::OmpClause::HasDeviceAddr,
-                 Fortran::parser::OmpClause::Reduction,
+                 //                 Fortran::parser::OmpClause::Reduction,
                  Fortran::parser::OmpClause::InReduction,
                  Fortran::parser::OmpClause::Allocate,
                  Fortran::parser::OmpClause::UsesAllocators,
@@ -2897,8 +2897,8 @@ genTeamsOp(Fortran::lower::AbstractConverter &converter,
                ifClauseOperand);
   cp.processAllocate(allocatorOperands, allocateOperands);
   cp.processDefault();
-  cp.processTODO<Fortran::parser::OmpClause::Reduction>(
-      currentLocation, llvm::omp::Directive::OMPD_teams);
+  //  cp.processTODO<Fortran::parser::OmpClause::Reduction>(
+  //      currentLocation, llvm::omp::Directive::OMPD_teams);
 
   // Evaluate num_teams and thread_limit on the host device, if inside of an
   // omp.target operation.
