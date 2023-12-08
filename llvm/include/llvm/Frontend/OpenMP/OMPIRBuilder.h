@@ -1275,7 +1275,8 @@ public:
   InsertPointTy createReductionsGPU(const LocationDescription &Loc,
                                     InsertPointTy AllocaIP,
                                     ArrayRef<ReductionInfo> ReductionInfos,
-                                    bool IsNoWait = false);
+                                    bool IsNoWait = false,
+                                    bool IsDistribute = false);
 
   // TODO: provide atomic and non-atomic reduction generators for reduction
   // operators defined by the OpenMP specification.
@@ -1341,7 +1342,8 @@ public:
   InsertPointTy createReductions(const LocationDescription &Loc,
                                  InsertPointTy AllocaIP,
                                  ArrayRef<ReductionInfo> ReductionInfos,
-                                 bool IsNoWait = false);
+                                 bool IsNoWait = false,
+                                 bool IsDistribute = false);
 
   ///}
 
