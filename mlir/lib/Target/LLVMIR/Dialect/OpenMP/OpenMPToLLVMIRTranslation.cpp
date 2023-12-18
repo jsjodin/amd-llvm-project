@@ -89,6 +89,8 @@ public:
 } // namespace
 
 SmallVector<llvm::OpenMPIRBuilder::ReductionInfo> GLOBAL_reductionInfos;
+llvm::OpenMPIRBuilder::InsertPointTy GLOBAL_privateReductionIP;
+bool GLOBAL_hasGlobalReductionIP = false;
 
 /// Find the insertion point for allocas given the current insertion point for
 /// normal operations in the builder.
@@ -802,12 +804,21 @@ allocReductionVars(T loop, llvm::IRBuilderBase &builder,
   privateReductionVariables.reserve(numReductions);
   if (numReductions != 0) {
     llvm::IRBuilderBase::InsertPointGuard guard(builder);
-    builder.restoreIP(allocaIP);
+    llvm::OpenMPIRBuilder::InsertPointTy curIP = builder.saveIP();
+    llvm::Type *ptrTy = llvm::PointerType::getUnqual(builder.getContext());
+    if (GLOBAL_hasGlobalReductionIP)
+      builder.restoreIP(GLOBAL_privateReductionIP);
+    else
+      builder.restoreIP(allocaIP);
+
     for (unsigned i = 0; i < numReductions; ++i) {
       llvm::Value *var = builder.CreateAlloca(
           moduleTranslation.convertType(reductionDecls[i].getType()));
-      privateReductionVariables.push_back(var);
-      reductionVariableMap.try_emplace(loop.getReductionVars()[i], var);
+      var->setName("private_redvar");
+      llvm::Value *castVar =
+          builder.CreatePointerBitCastOrAddrSpaceCast(var, ptrTy);
+      privateReductionVariables.push_back(castVar);
+      reductionVariableMap.try_emplace(loop.getReductionVars()[i], castVar);
     }
   }
 }
@@ -1065,9 +1076,6 @@ convertOmpWsLoop(Operation &opInst, llvm::IRBuilderBase &builder,
   // and remove it later.
   llvm::UnreachableInst *tempTerminator = builder.CreateUnreachable();
   builder.SetInsertPoint(tempTerminator);
-  if(ompBuilder->Config.isGPU()) {
-    llvm::errs() << "--------------- Threads GPU Reduction ------------\n";
-  }
 
   llvm::OpenMPIRBuilder::InsertPointTy contInsertPoint =
       ompBuilder->createReductions(builder.saveIP(), allocaIP, reductionInfos,
@@ -1812,7 +1820,8 @@ llvm::Value *getSizeInBytes(DataLayout &dl, const mlir::Type &type,
       // bytes from the extent (ub - lb) * sizeInBytes. NOTE: This may need
       // some adjustment for members with more complex types.
       return builder.CreateMul(elementCount,
-                               builder.getInt64(underlyingTypeSzInBits / 8));
+                               builder.getInt64(underlyingTypeSzInBits / 8),
+                               "element_count");
     }
   }
 
@@ -2286,7 +2295,7 @@ createDeviceArgumentAccessor(MapInfoData &mapData, llvm::Argument &arg,
       ompBuilder.M.getDataLayout().getProgramAddressSpace();
 
   // Create the alloca for the argument the current point.
-  llvm::Value *v = builder.CreateAlloca(arg.getType(), allocaAS);
+  llvm::Value *v = builder.CreateAlloca(arg.getType(), allocaAS, nullptr, "arg_alloca");
 
   if (allocaAS != defaultAS && arg.getType()->isPointerTy())
     v = builder.CreatePointerBitCastOrAddrSpaceCast(
@@ -2414,6 +2423,9 @@ convertOmpDistribute(Operation &opInst, llvm::IRBuilderBase &builder,
 
     // DistributeOp has only one region associated with it.
     builder.restoreIP(codeGenIP);
+    GLOBAL_privateReductionIP = allocaIP;
+    GLOBAL_hasGlobalReductionIP = true;
+
     auto regionBlock =
         convertOmpOpRegions(opInst.getRegion(0), "omp.distribute.region",
                             builder, moduleTranslation, bodyGenStatus);
@@ -2427,22 +2439,13 @@ convertOmpDistribute(Operation &opInst, llvm::IRBuilderBase &builder,
     // that instead of the reduction clause that could have been on the
     // omp.parallel
     auto IP = builder.saveIP();
-
     if (ompBuilder->Config.isGPU()) {
       bool distributeParallelCodeGen = true;
-      llvm::errs() << "--------------- TEAMS GPU Reduction ------------\n";
       llvm::OpenMPIRBuilder::InsertPointTy contInsertPoint =
           ompBuilder->createReductions(IP, allocaIP, GLOBAL_reductionInfos,
                                        false, distributeParallelCodeGen);
       builder.restoreIP(contInsertPoint);
     }
-
-  llvm::errs() << "--------------- Current Module ------------\n";
-  ompBuilder->M.dump();
-  llvm::errs() << "--------------- Current IP block ------------\n";
-  IP.getBlock()->dump();
-  llvm::errs() << "--------------- Current IP block END------------\n";
-
   };
 
   llvm::OpenMPIRBuilder::InsertPointTy allocaIP =
